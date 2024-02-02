@@ -1,8 +1,12 @@
 package searchengine.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
-import searchengine.model.Site;
+import searchengine.model.SiteEntity;
 
-public interface SiteRepository extends JpaRepository<Site, Long> {
+import javax.transaction.Transactional;
+
+public interface SiteRepository extends JpaRepository<SiteEntity, Long> {
+    @Transactional
+    SiteEntity findByUrl(String url);
 
 }
