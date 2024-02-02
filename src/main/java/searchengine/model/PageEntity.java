@@ -13,14 +13,14 @@ import javax.persistence.*;
 @Getter
 @Setter
 @EqualsAndHashCode(exclude = "id")
-public class Page {
+public class PageEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "site_id", nullable = false, foreignKey = @ForeignKey(name = "FK_page_site"))
     @OnDelete(action = OnDeleteAction.CASCADE)
-    private Site site;
+    private SiteEntity site;
     @Column(columnDefinition = "text", nullable = false)
     private String path;
     @Column(nullable = false)
