@@ -8,8 +8,8 @@ import lombok.Setter;
 public class IndexingResponseError extends IndexingResponse{
     private String error;
 
-    public IndexingResponseError(boolean result, String error) {
-        super(result);
+    public IndexingResponseError(String error) {
+        super(false);
         this.error = error;
     }
 }
