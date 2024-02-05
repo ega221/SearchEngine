@@ -8,11 +8,17 @@ import searchengine.repository.SiteRepository;
 
 import java.time.LocalDateTime;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ForkJoinPool;
 
 public class SiteParser implements Callable<Boolean> {
     private final Site siteConfig;
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
+    private boolean isParsed = false;
+
+    private SiteEntity site;
+
+    private ForkJoinPool forkJoinPool;
 
     public SiteParser(Site siteConfig, SiteRepository siteRepository, PageRepository pageRepository) {
         this.siteConfig = siteConfig;
@@ -23,16 +29,18 @@ public class SiteParser implements Callable<Boolean> {
 
     @Override
     public Boolean call() throws Exception {
-        SiteEntity site = findOrSave(siteConfig);
+        site = findOrSave(siteConfig);
+        PageCrawler pageCrawler = new PageCrawler(site, pageRepository, siteRepository, site.getUrl());
+        forkJoinPool = new ForkJoinPool(4);
+        forkJoinPool.invoke(pageCrawler);
         return true;
     }
 
     private SiteEntity findOrSave(Site siteConfig) {
-        SiteEntity site = siteRepository.findByUrl(siteConfig.getUrl());
-        //TODO разобраться в том, что должно происходить, в случае если сайт находится в БД
-        // нужно удалять все страницы этого сайта из БД, то есть проводить переиндексацию.
-        // Или нужно просто закончить индексацию сайта, то есть пройти оставшиеся страницы?
+        site = siteRepository.findByUrl(siteConfig.getUrl());
         if (site != null) {
+            // Todo: разобраться с проблемой удаления старых страниц, связанных с сайтом, почему ничего не происходит?
+            pageRepository.deleteBySiteId(site.getId());
             site.setStatus(IndexingStatus.INDEXING);
             site.setStatusTime(LocalDateTime.now());
             siteRepository.saveAndFlush(site);
@@ -42,9 +50,19 @@ public class SiteParser implements Callable<Boolean> {
             site.setUrl(siteConfig.getUrl());
             site.setStatus(IndexingStatus.INDEXING);
             site.setStatusTime(LocalDateTime.now());
-            siteRepository.saveAndFlush(site);
+            site = siteRepository.saveAndFlush(site);
         }
         return site;
+    }
+
+    public void stopIndexing() {
+        if (!isParsed) {
+            site.setStatus(IndexingStatus.FAILED);
+            site.setStatusTime(LocalDateTime.now());
+            site.setLastError("Индексация остановлена пользователем");
+            site = siteRepository.saveAndFlush(site);
+            forkJoinPool.shutdownNow();
+        }
     }
 
 }
