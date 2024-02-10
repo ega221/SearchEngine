@@ -14,7 +14,7 @@ public class SiteParser implements Callable<Boolean> {
     private final Site siteConfig;
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
-    private boolean isParsed = false;
+    private boolean isStopped = false;
 
     private SiteEntity site;
 
@@ -39,8 +39,8 @@ public class SiteParser implements Callable<Boolean> {
     private SiteEntity findOrSave(Site siteConfig) {
         site = siteRepository.findByUrl(siteConfig.getUrl());
         if (site != null) {
-            // Todo: разобраться с проблемой удаления старых страниц, связанных с сайтом, почему ничего не происходит?
             pageRepository.deleteBySiteId(site.getId());
+            site.setLastError(null);
             site.setStatus(IndexingStatus.INDEXING);
             site.setStatusTime(LocalDateTime.now());
             siteRepository.saveAndFlush(site);
@@ -56,13 +56,21 @@ public class SiteParser implements Callable<Boolean> {
     }
 
     public void stopIndexing() {
-        if (!isParsed) {
+        if (!isStopped) {
             site.setStatus(IndexingStatus.FAILED);
             site.setStatusTime(LocalDateTime.now());
             site.setLastError("Индексация остановлена пользователем");
             site = siteRepository.saveAndFlush(site);
             forkJoinPool.shutdownNow();
         }
+    }
+
+    public void setIndexedStatus() {
+        site.setStatus(IndexingStatus.INDEXED);
+        site.setStatusTime(LocalDateTime.now());
+        siteRepository.saveAndFlush(site);
+        forkJoinPool.shutdown();
+        isStopped = true;
     }
 
 }

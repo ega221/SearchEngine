@@ -60,9 +60,11 @@ public class IndexingServiceImpl implements IndexingService {
         if (!isIndexing) {
             return new IndexingResponseError("Индексация не запущена");
         } else {
+
             for (SiteParser siteParser : siteParsers) {
                 siteParser.stopIndexing();
             }
+
             executorService.shutdownNow();
             isIndexing = false;
             return new IndexingResponseOk();
