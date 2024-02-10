@@ -1,6 +1,5 @@
 package searchengine.utils.parser;
 
-import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -12,10 +11,9 @@ import searchengine.repository.SiteRepository;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.concurrent.RecursiveAction;
+import java.util.concurrent.RecursiveTask;
 
-public class PageCrawler extends RecursiveAction {
-    //Todo: Добавить обновление времени статуса для сайта в соответствии с ТЗ.
+public class PageCrawler extends RecursiveTask<Boolean> {
 
     private static final String  CSS_QUERY = "a[href]";
     private static final String ATTRIBUTE_KEY = "href";
@@ -36,30 +34,30 @@ public class PageCrawler extends RecursiveAction {
     }
 
     @Override
-    protected void compute() {
-        //System.out.println("PageCrawler was invoked with link:" + url);
-        //System.out.println(pageRepository.existsByPath(path));
+    protected Boolean compute() {
+        System.out.println("PageCrawler was invoked with link:" + url);
         site.setStatusTime(LocalDateTime.now());
         siteRepository.saveAndFlush(site);
 
         try {
             Thread.sleep(500);
+
             Document page = Jsoup.connect(url).ignoreContentType(true).ignoreHttpErrors(true)
                     .userAgent("Mozilla/5.0").get();
             String content = page.outerHtml();
             int code = page.connection().response().statusCode();
-            PageEntity transientpageEntity = getTransientPageEntity(site, path, code, content);
-            PageEntity persistentPageEntity = pageRepository.save(transientpageEntity);
+            PageEntity transientPageEntity = getTransientPageEntity(site, path, code, content);
+            PageEntity persistentPageEntity = pageRepository.save(transientPageEntity);
             Elements elements = page.select(CSS_QUERY);
 
             for (Element element : elements) {
                 String link = element.absUrl(ATTRIBUTE_KEY);
                 String elementPath = link.substring(site.getUrl().length());
-                //System.out.println("\t" + (link.startsWith(site.getUrl())));
+
                 if (link.startsWith(site.getUrl()) && !pageRepository.existsByPath(elementPath) && !link.contains("#")) {
                     PageCrawler pageCrawler = new PageCrawler(site, pageRepository, siteRepository, link);
-                    //System.out.println(link);
                     pageCrawler.fork();
+                    return true;
                 }
             }
 
@@ -69,6 +67,7 @@ public class PageCrawler extends RecursiveAction {
             throw new RuntimeException(e);
         }
 
+        return false;
     }
 
     private PageEntity getTransientPageEntity(SiteEntity site, String path, int code, String content) {
