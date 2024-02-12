@@ -5,35 +5,51 @@ import searchengine.model.SiteEntity;
 import searchengine.model.enums.IndexingStatus;
 import searchengine.repository.PageRepository;
 import searchengine.repository.SiteRepository;
+import searchengine.utils.indexingFlag.IndexingFlag;
 
 import java.time.LocalDateTime;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ForkJoinPool;
 
-public class SiteParser implements Callable<Boolean> {
+public class SiteParser implements Runnable {
     private final Site siteConfig;
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
-    private boolean isStopped = false;
-
+    private volatile IndexingFlag indexingFlag;
     private SiteEntity site;
-
     private ForkJoinPool forkJoinPool;
 
-    public SiteParser(Site siteConfig, SiteRepository siteRepository, PageRepository pageRepository) {
+    public SiteParser(Site siteConfig, SiteRepository siteRepository, PageRepository pageRepository, IndexingFlag indexingFlag) {
         this.siteConfig = siteConfig;
         this.siteRepository = siteRepository;
         this.pageRepository = pageRepository;
+        this.indexingFlag = indexingFlag;
     }
 
 
     @Override
-    public Boolean call() throws Exception {
-        site = findOrSave(siteConfig);
-        PageCrawler pageCrawler = new PageCrawler(site, pageRepository, siteRepository, site.getUrl());
-        forkJoinPool = new ForkJoinPool(4);
-        forkJoinPool.invoke(pageCrawler);
-        return true;
+    public void run() {
+        try {
+            site = findOrSave(siteConfig);
+            PageCrawler pageCrawler = new PageCrawler(site, pageRepository, siteRepository, site.getUrl(), indexingFlag);
+            // ToDo: сделать выбор парралелизма на основе доступных ядер.
+            forkJoinPool = new ForkJoinPool(4);
+            forkJoinPool.submit(pageCrawler);
+            pageCrawler.join();
+            if (indexingFlag.isIndexingAllowed()) {
+                setIndexedStatus();
+            } else {
+                stoppedIndexing();
+            }
+
+        } catch (CancellationException e) {
+            site.setStatus(IndexingStatus.FAILED);
+            site.setStatusTime(LocalDateTime.now());
+            site.setLastError("Ошибка индексации: " + e.getMessage());
+            site = siteRepository.saveAndFlush(site);
+        }
+
     }
 
     private SiteEntity findOrSave(Site siteConfig) {
@@ -55,22 +71,18 @@ public class SiteParser implements Callable<Boolean> {
         return site;
     }
 
-    public void stopIndexing() {
-        if (!isStopped) {
-            site.setStatus(IndexingStatus.FAILED);
-            site.setStatusTime(LocalDateTime.now());
-            site.setLastError("Индексация остановлена пользователем");
-            site = siteRepository.saveAndFlush(site);
-            forkJoinPool.shutdownNow();
-        }
+    public void stoppedIndexing() {
+        site.setStatus(IndexingStatus.FAILED);
+        site.setStatusTime(LocalDateTime.now());
+        site.setLastError("Индексация остановлена пользователем");
+        site = siteRepository.saveAndFlush(site);
     }
 
     public void setIndexedStatus() {
         site.setStatus(IndexingStatus.INDEXED);
         site.setStatusTime(LocalDateTime.now());
         siteRepository.saveAndFlush(site);
-        forkJoinPool.shutdown();
-        isStopped = true;
+
     }
 
 }

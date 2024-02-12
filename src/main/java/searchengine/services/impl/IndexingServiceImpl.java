@@ -9,6 +9,7 @@ import searchengine.dto.indexing.IndexingResponseOk;
 import searchengine.repository.PageRepository;
 import searchengine.repository.SiteRepository;
 import searchengine.services.IndexingService;
+import searchengine.utils.indexingFlag.IndexingFlag;
 import searchengine.utils.parser.SiteParser;
 
 import java.util.ArrayList;
@@ -21,16 +22,20 @@ public class IndexingServiceImpl implements IndexingService {
     private final SitesList sitesList;
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
+    private final IndexingFlag indexingFlag;
+    private boolean isIndexing;
 
     private ExecutorService executorService;
     private List<SiteParser> siteParsers;
 
-    private boolean isIndexing = false;
 
-    public IndexingServiceImpl(SitesList sitesList, SiteRepository siteRepository, PageRepository pageRepository) {
+
+    public IndexingServiceImpl(SitesList sitesList, SiteRepository siteRepository, PageRepository pageRepository, IndexingFlag indexingFlag) {
         this.sitesList = sitesList;
         this.siteRepository = siteRepository;
         this.pageRepository = pageRepository;
+        this.indexingFlag = indexingFlag;
+        this.isIndexing = false;
     }
 
     @Override
@@ -38,17 +43,15 @@ public class IndexingServiceImpl implements IndexingService {
         if (isIndexing) {
             return new IndexingResponseError("Индексация уже запущена");
         } else {
+            indexingFlag.allowIndexing();
             siteParsers = new ArrayList<>();
             executorService = getExecutorService();
             for (Site site : sitesList.getSites()) {
-                SiteParser siteParser = new SiteParser(site, siteRepository, pageRepository);
+                SiteParser siteParser = new SiteParser(site, siteRepository, pageRepository, indexingFlag);
                 siteParsers.add(siteParser);
+                executorService.execute(siteParser);
             }
-            try {
-                executorService.invokeAll(siteParsers);
-            } catch (InterruptedException e) {
-                return new IndexingResponseError(e.getMessage());
-            }
+
             isIndexing = true;
             return new IndexingResponseOk();
         }
@@ -60,12 +63,7 @@ public class IndexingServiceImpl implements IndexingService {
         if (!isIndexing) {
             return new IndexingResponseError("Индексация не запущена");
         } else {
-
-            for (SiteParser siteParser : siteParsers) {
-                siteParser.stopIndexing();
-            }
-
-            executorService.shutdownNow();
+            indexingFlag.stopIndexing();
             isIndexing = false;
             return new IndexingResponseOk();
         }

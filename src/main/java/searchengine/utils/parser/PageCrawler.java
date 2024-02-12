@@ -8,12 +8,13 @@ import searchengine.model.PageEntity;
 import searchengine.model.SiteEntity;
 import searchengine.repository.PageRepository;
 import searchengine.repository.SiteRepository;
+import searchengine.utils.indexingFlag.IndexingFlag;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.concurrent.RecursiveTask;
+import java.util.concurrent.RecursiveAction;
 
-public class PageCrawler extends RecursiveTask<Boolean> {
+public class PageCrawler extends RecursiveAction {
 
     private static final String  CSS_QUERY = "a[href]";
     private static final String ATTRIBUTE_KEY = "href";
@@ -22,52 +23,59 @@ public class PageCrawler extends RecursiveTask<Boolean> {
     private final PageRepository pageRepository;
     private final SiteRepository siteRepository;
     private final String url;
-
     private final String path;
+    private volatile IndexingFlag indexingFlag;
 
-    public PageCrawler(SiteEntity site, PageRepository pageRepository, SiteRepository siteRepository, String url) {
+
+    public PageCrawler(SiteEntity site, PageRepository pageRepository, SiteRepository siteRepository, String url, IndexingFlag indexingFlag) {
         this.site = site;
         this.pageRepository = pageRepository;
         this.siteRepository = siteRepository;
         this.url = url;
+        this.indexingFlag = indexingFlag;
         this.path = url.substring(site.getUrl().length());
     }
 
     @Override
-    protected Boolean compute() {
-        System.out.println("PageCrawler was invoked with link:" + url);
-        site.setStatusTime(LocalDateTime.now());
-        siteRepository.saveAndFlush(site);
+    protected void compute() {
+        if (indexingFlag.isIndexingAllowed()) {
 
-        try {
-            Thread.sleep(500);
+            System.out.println("PageCrawler was invoked with link:" + url + " in thread: " + Thread.currentThread().getName());
+            site.setStatusTime(LocalDateTime.now());
+            siteRepository.saveAndFlush(site);
 
-            Document page = Jsoup.connect(url).ignoreContentType(true).ignoreHttpErrors(true)
-                    .userAgent("Mozilla/5.0").get();
-            String content = page.outerHtml();
-            int code = page.connection().response().statusCode();
-            PageEntity transientPageEntity = getTransientPageEntity(site, path, code, content);
-            PageEntity persistentPageEntity = pageRepository.save(transientPageEntity);
-            Elements elements = page.select(CSS_QUERY);
+            try {
+                Thread.sleep(500);
 
-            for (Element element : elements) {
-                String link = element.absUrl(ATTRIBUTE_KEY);
-                String elementPath = link.substring(site.getUrl().length());
+                Document page = Jsoup.connect(url).ignoreContentType(true).ignoreHttpErrors(true)
+                        .userAgent("Mozilla/5.0").get();
+                String content = page.outerHtml();
+                int code = page.connection().response().statusCode();
+                PageEntity transientPageEntity = getTransientPageEntity(site, path, code, content);
+                PageEntity persistentPageEntity = pageRepository.save(transientPageEntity);
+                Elements elements = page.select(CSS_QUERY);
 
-                if (link.startsWith(site.getUrl()) && !pageRepository.existsByPath(elementPath) && !link.contains("#")) {
-                    PageCrawler pageCrawler = new PageCrawler(site, pageRepository, siteRepository, link);
-                    pageCrawler.fork();
-                    return true;
+                for (Element element : elements) {
+                    String link = element.absUrl(ATTRIBUTE_KEY);
+                    String elementPath = link.substring(site.getUrl().length());
+
+                    if (link.startsWith(site.getUrl()) && !pageRepository.existsByPath(elementPath) && !link.contains("#")) {
+                        System.out.println(indexingFlag.isIndexingAllowed() + " in site with url: " + link);
+                        PageCrawler pageCrawler = new PageCrawler(site, pageRepository, siteRepository, link, indexingFlag);
+                        pageCrawler.fork();
+                        pageCrawler.join();
+                    }
                 }
+
+
+
+            } catch (IOException | InterruptedException e) {
+                throw new RuntimeException(e);
             }
-
-
-
-        } catch (IOException | InterruptedException e) {
-            throw new RuntimeException(e);
+        } else {
+            System.out.println(indexingFlag.isIndexingAllowed());
         }
 
-        return false;
     }
 
     private PageEntity getTransientPageEntity(SiteEntity site, String path, int code, String content) {
@@ -80,7 +88,4 @@ public class PageCrawler extends RecursiveTask<Boolean> {
                 .build();
     }
 
-    private void saveTransientPage(PageEntity page) {
-        pageRepository.save(page);
-    }
 }
