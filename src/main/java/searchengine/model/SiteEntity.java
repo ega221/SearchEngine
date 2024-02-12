@@ -15,7 +15,7 @@ import java.util.Set;
 @Getter
 @Setter
 @EqualsAndHashCode(exclude = "id")
-public class Site {
+public class SiteEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
@@ -31,5 +31,5 @@ public class Site {
     @Column(nullable = false, columnDefinition = "VARCHAR(255)")
     private String name;
     @OneToMany(mappedBy = "site", fetch = FetchType.LAZY)
-    private Set<Page> pageSet = new HashSet<>();
+    private Set<PageEntity> pageSet = new HashSet<>();
 }
