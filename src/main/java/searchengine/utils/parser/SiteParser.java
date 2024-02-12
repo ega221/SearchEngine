@@ -39,8 +39,10 @@ public class SiteParser implements Runnable {
             pageCrawler.join();
             if (indexingFlag.isIndexingAllowed()) {
                 setIndexedStatus();
+                forkJoinPool.shutdown();
             } else {
                 stoppedIndexing();
+                forkJoinPool.shutdown();
             }
 
         } catch (CancellationException e) {
